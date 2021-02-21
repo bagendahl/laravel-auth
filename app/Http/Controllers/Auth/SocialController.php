@@ -8,8 +8,8 @@ use App\Models\Social;
 use App\Models\User;
 use App\Traits\ActivationTrait;
 use App\Traits\CaptureIpTrait;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Input;
 use jeremykenedy\LaravelRoles\Models\Role;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -17,14 +17,17 @@ class SocialController extends Controller
 {
     use ActivationTrait;
 
+    private $redirectSuccessLogin = 'home';
+
     /**
      * Gets the social redirect.
      *
      * @param string $provider The provider
+     * @param \Illuminate\Http\Request $request
      *
-     * @return Redirect
+     * @return \Illuminate\Http\Response
      */
-    public function getSocialRedirect($provider)
+    public function getSocialRedirect($provider, Request $request)
     {
         $providerKey = Config::get('services.'.$provider);
 
@@ -40,12 +43,16 @@ class SocialController extends Controller
      * Gets the social handle.
      *
      * @param string $provider The provider
+     * @param \Illuminate\Http\Request $request
      *
-     * @return Redirect
+     * @return \Illuminate\Http\Response
      */
-    public function getSocialHandle($provider)
+    public function getSocialHandle($provider, Request $request)
     {
-        if (Input::get('denied') != '') {
+        $denied = $request->denied ? $request->denied : null;
+        $socialUser = null;
+
+        if ($denied != null || $denied != '') {
             return redirect()->to('login')
                 ->with('status', 'danger')
                 ->with('message', trans('socials.denied'));
@@ -53,17 +60,16 @@ class SocialController extends Controller
 
         $socialUserObject = Socialite::driver($provider)->user();
 
-        $socialUser = null;
-
         // Check if email is already registered
         $userCheck = User::where('email', '=', $socialUserObject->email)->first();
 
         $email = $socialUserObject->email;
 
-        if (!$socialUserObject->email) {
+        if (! $socialUserObject->email) {
             $email = 'missing'.str_random(10).'@'.str_random(10).'.example.org';
         }
 
+        // If user is not registered
         if (empty($userCheck)) {
             $sameSocialId = Social::where('social_id', '=', $socialUserObject->id)
                 ->where('provider', '=', $provider)
@@ -116,7 +122,9 @@ class SocialController extends Controller
 
                 // Twitter User Object details: https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/user-object
                 if ($socialData->provider == 'twitter') {
-                    $user->profile()->twitter_username = $socialUserObject->screen_name;
+                    //$user->profile()->twitter_username = $socialUserObject->screen_name;
+                    //If the above fails try (The documentation shows screen_name however so Twitters docs may be out of date.):
+                    $user->profile()->twitter_username = $socialUserObject->nickname;
                 }
                 $user->profile->save();
 
@@ -127,14 +135,14 @@ class SocialController extends Controller
 
             auth()->login($socialUser, true);
 
-            return redirect('home')->with('success', trans('socials.registerSuccess'));
+            return redirect($this->redirectSuccessLogin)->with('success', trans('socials.registerSuccess'));
         }
 
         $socialUser = $userCheck;
 
         auth()->login($socialUser, true);
 
-        return redirect('home');
+        return redirect($this->redirectSuccessLogin);
     }
 
     /**
